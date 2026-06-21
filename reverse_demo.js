@@ -2,6 +2,7 @@ reverse = {
     "uwiki.kskb.eu.org": {           // Domain of the cf worker
         "protocol": "https",         // HTTP or HTTPS, protocol of the original site
         "host": "en.wikipedia.org",  // Target domain
+        // "port": 5443,             // Optional: target port. Omit to use the protocol default (80 for http, 443 for https)
         "replace": {                //Replace string for all json/html/text/javascript through this proxy
             "Wiki": "Uncyclo",
         },

@@ -27,6 +27,9 @@ addEventListener("fetch", event => {
 
     url.protocol = target.protocol;
     url.host = target.host;
+    if (target.port) {
+        url.port = target.port;
+    }
 
     if (url.pathname in target.redirect) {
         //console.log(" 302 to " + target.redirect[url.pathname])
