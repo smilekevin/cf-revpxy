@@ -163,6 +163,11 @@ async function handleRequest(req) {
     //console.log("fetching " + req.url)
     var response = await fetch(req);
 
+    // Skip body rewriting for API endpoints (e.g. Vaultwarden tokens)
+    if (target.no_rewrite) {
+        return response;
+    }
+
     let contype = response.headers.get("Content-Type")
     // Author: Kusakabe Si
     if (contype != null && (contype.includes("json") || contype.includes("html") || contype.includes("text") || contype.includes("javascript"))) {
