@@ -8,6 +8,7 @@ addEventListener("fetch", event => {
     var url = new URL(event.request.url);
     for (const [s_domain, s_target] of Object.entries(reverse)) {
         // console.log(url.host)
+        if (s_domain === "*") continue; // wildcard handled below
         if (url.host.endsWith(s_domain)) {
             target = reverse[s_domain];
             target.f_host = s_domain;
@@ -17,6 +18,12 @@ addEventListener("fetch", event => {
             // console.log("Not Match: " + s_domain)
             continue;
         }
+    }
+
+    // Fallback: "*" matches any domain that wasn't matched above
+    if (target.f_host == undefined && reverse["*"]) {
+        target = reverse["*"];
+        target.f_host = "*";
     }
 
     if (target.f_host == undefined) {
