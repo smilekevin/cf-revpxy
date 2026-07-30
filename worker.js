@@ -55,6 +55,13 @@ addEventListener("fetch", event => {
         url.pathname = target.path_prefix +  url.pathname
     }
 
+    // ---- WebSocket upgrade: relay to upstream ----
+    const upgradeHeader = request.headers.get("Upgrade");
+    if (upgradeHeader && upgradeHeader.toLowerCase() === "websocket") {
+        event.passThroughOnException();
+        return event.respondWith(handleWebSocket(url, request));
+    }
+
     const modifiedRequest = new Request(url, {
         body: request.body,
         headers: request.headers,
@@ -63,6 +70,71 @@ addEventListener("fetch", event => {
     event.passThroughOnException();
     return event.respondWith(handleRequest(modifiedRequest));
 })
+
+// ---- WebSocket bidirectional relay ----
+async function handleWebSocket(upstreamUrl, clientRequest) {
+    // Create a WebSocketPair: [0] goes back to the client, [1] we relay ourselves
+    const pair = new WebSocketPair();
+    const [clientWs, serverWs] = Object.values(pair);
+
+    // Accept the client connection
+    serverWs.accept();
+
+    // Forward headers that the upstream Vaultwarden / reverse-proxy target needs
+    const upstreamHeaders = new Headers();
+    for (const [key, value] of clientRequest.headers) {
+        // Skip hop-by-hop headers that confuse upstream
+        const lower = key.toLowerCase();
+        if (lower === "host" || lower === "cf-connecting-ip" ||
+            lower === "x-forwarded-for" || lower === "x-forwarded-proto" ||
+            lower === "cf-ray" || lower === "cf-visitor" ||
+            lower === "cdn-loop") {
+            continue;
+        }
+        upstreamHeaders.set(key, value);
+    }
+    upstreamHeaders.set("Host", upstreamUrl.host);
+    upstreamHeaders.set("X-Forwarded-For", clientRequest.headers.get("CF-Connecting-IP") || "");
+
+    try {
+        const upstreamResp = await fetch(upstreamUrl.href, {
+            headers: upstreamHeaders,
+        });
+        const upstreamWs = upstreamResp.webSocket;
+        if (!upstreamWs) {
+            serverWs.close(1011, "Upstream refused WebSocket upgrade");
+            return new Response(null, { status: 101, webSocket: clientWs });
+        }
+        upstreamWs.accept();
+
+        // Bidirectional relay
+        let closed = false;
+        const close = () => {
+            if (closed) return;
+            closed = true;
+            try { serverWs.close(); } catch (e) { /* already closed */ }
+            try { upstreamWs.close(); } catch (e) { /* already closed */ }
+        };
+
+        serverWs.addEventListener("message", (ev) => {
+            try { if (!closed) upstreamWs.send(ev.data); } catch (e) { close(); }
+        });
+        upstreamWs.addEventListener("message", (ev) => {
+            try { if (!closed) serverWs.send(ev.data); } catch (e) { close(); }
+        });
+        serverWs.addEventListener("close", close);
+        upstreamWs.addEventListener("close", close);
+        serverWs.addEventListener("error", close);
+        upstreamWs.addEventListener("error", close);
+
+        return new Response(null, { status: 101, webSocket: clientWs });
+    } catch (e) {
+        serverWs.close(1011, "Upstream connection failed");
+        return new Response(null, { status: 101, webSocket: clientWs });
+    }
+}
+
+// ---- Existing: HTTP request handler ----
 
 function cfDecodeEmail(encodedString) {
     var email = "",
