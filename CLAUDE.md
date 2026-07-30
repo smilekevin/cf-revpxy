@@ -18,9 +18,10 @@ Request flow in the `fetch` event listener:
 3. **`redirect`** — if `url.pathname` is a key in `target.redirect`, return a 302 immediately (no upstream fetch).
 4. **`reverse` (path override)** — if `url.pathname` is a key in `target.reverse`, replace it: a value starting with `http` swaps the entire URL (cross-origin resource), otherwise it replaces just the pathname.
 5. **`path_prefix`** — optional prefix prepended to the pathname.
-6. Forward via `handleRequest`.
+6. **WebSocket upgrade** — if `Upgrade: websocket` header is present, relay via `handleWebSocket` (bidirectional WebSocketPair relay).
+7. Forward via `handleRequest`.
 
-`handleRequest` fetches upstream and, **only for json/html/text/javascript content types**, rewrites the body:
+`handleRequest` fetches upstream and, **only for json/html/text/javascript content types**, rewrites the body — unless `target.no_rewrite` is true, in which case the response is passed through untouched (important for APIs like Vaultwarden whose token payloads would be corrupted by host replacement).
 - Decodes Cloudflare `data-cfemail` / `email-protection#` tokens (`cfDecodeEmail`), applies the same replacements to the cleartext, re-encodes (`cfEncodeEmail`), and adds those to `target.replace` so the obfuscated emails get swapped too.
 - Applies every `target.replace` string pair via `replaceAll`.
 - Replaces all occurrences of `target.host` with `target.f_host` so upstream's own hostname becomes the proxy domain.
@@ -32,6 +33,7 @@ Request flow in the `fetch` event listener:
 - `reverse` — `{ pathname: newPathnameOrFullUrl }` path overrides (see step 4).
 - `redirect` — `{ pathname: location }` 302 redirects.
 - `path_prefix` — optional, read at runtime but not present in the demo config.
+- `no_rewrite` — optional boolean; when true, skip all body rewriting and pass the response through as-is. Use for API backends (e.g. Vaultwarden) where host replacement would corrupt signed tokens.
 
 The `replace`, `reverse`, and `redirect` objects are all looked up with `in` / `Object.entries`, so each entry must include them (use `{}` when empty) or the Worker throws at request time.
 
